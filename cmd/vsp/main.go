@@ -246,11 +246,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create and start MCP server
-	mcpServer := mcp.NewServer(cfg)
+	server := mcp.NewServer(cfg)
 	if cfg.Transport == "http-streamable" {
 		fmt.Fprintf(os.Stderr, "Starting MCP streamable HTTP server on http://%s%s\n", mcp.DefaultStreamableHTTPAddr, mcp.DefaultStreamableHTTPPath)
 	}
-	return mcpServer.Serve(cfg.Transport)
+	return server.Serve(cfg.Transport)
 }
 
 func resolveConfig(cmd *cobra.Command) {
@@ -521,3 +521,4 @@ func main() {
 		os.Exit(1)
 	}
 }
+
