@@ -63,3 +63,4 @@ abap-adt-api/
 
 # Session logs
 sessions/
+node_modules/
