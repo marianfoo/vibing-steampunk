@@ -15,36 +15,92 @@
 
 Read the milestone article: **[Agentic ABAP at 100 Stars: The Numbers, The Community, and What's Cooking](articles/2026-02-18-100-stars-celebration.md)**
 
-## What's New
+## What's New — Token Efficiency Sprint
+
+> **Sprint goal:** make every token count. Built-in ABAP understanding, compressed dependency context, and a single-tool mode that opens the door for local/small models.
 
 The full version history is in [CHANGELOG.md](CHANGELOG.md).
 
-Latest highlights:
-- **One-Tool Mode** (`--tool-mode universal`): Single `SAP(action, target, params)` tool replacing 122 individual tool definitions. Reduces MCP schema overhead from ~40K tokens to ~200 tokens. Use `SAP(action="help")` for built-in documentation. Default remains `granular` (122 tools) for backwards compatibility.
+### Hyperfocused Mode — 1 Tool to Rule Them All
+
+Single `SAP(action, target, params)` tool replaces up to 122 individual tool definitions.
+
+```
+SAP(action="read",   target="CLAS ZCL_TRAVEL")
+SAP(action="edit",   target="CLAS ZCL_TRAVEL", params={"source": "..."})
+SAP(action="create", target="DEVC", params={"name": "$ZOZIK", "description": "New pkg"})
+SAP(action="help",   target="debug")
+```
+
+| Metric | Focused (81 tools) | Expert (122 tools) | Hyperfocused (1 tool) |
+|--------|-------------------:|-------------------:|----------------------:|
+| MCP schema tokens | ~14,000 | ~40,000 | **~200** |
+| Reduction | — | — | **99.5%** |
+
+All safety controls (`--read-only`, `--allowed-ops`, `--allowed-packages`) work identically — the universal tool routes through the same handler → ADT client → `checkSafety()` chain.
+
+> *Thanks to [Filipp Gnilyak](https://github.com/nickel-f) for the hyperfocused mode concept.*
+
+### Context Compression — Built-in ABAP Understanding
+
+`GetSource` auto-appends a **compressed dependency prologue** — public API signatures of every referenced class, interface, and FM. One MCP call = source + full surrounding context.
+
+**How it works:**
+
+```mermaid
+graph LR
+    A["GetSource<br/>ZCL_TRAVEL"] --> B["10 regex patterns<br/>scan source"]
+    B --> C["TYPE REF TO<br/>NEW · => · ~<br/>INHERITING FROM<br/>INTERFACES<br/>CALL FUNCTION<br/>CAST · RAISING"]
+    C --> D["Fetch deps<br/>5 parallel"]
+    D --> E["Extract contract<br/>PUBLIC SECTION only"]
+    E --> F["Source +<br/>Compressed Prologue"]
+```
+
+**Compression by object type:**
+
+| What | Keeps | Strips | Typical ratio |
+|------|-------|--------|:-------------:|
+| **Class** | `CLASS DEFINITION` + `PUBLIC SECTION` | Protected, Private, Implementation | **7–30x** |
+| **Interface** | Full `INTERFACE...ENDINTERFACE` | — | 1x (already compact) |
+| **Function Module** | `FUNCTION` line + `*"` signature block | Body | **5–15x** |
+
+**Real-world example** — `ZCL_ABAPGIT_ADT_LINK` (abapGit codebase):
+- 8 dependencies detected → 8 resolved, 0 failed
+- Dependencies include: `ZIF_ABAPGIT_DEFINITIONS` (massive interface), `ZCX_ABAPGIT_EXCEPTION`, `CL_WB_OBJECT` (14 methods), `IF_ADT_URI_MAPPER` (8 methods), etc.
+- All compressed to **public signatures only** — no implementation bodies, no private sections
+
+**Method-level reads** (`params={"method": "GET_DATA"}`) add another **95% reduction** — returns only the `METHOD...ENDMETHOD` block.
+
+> *Built-in ABAP parser based on [abaplint](https://github.com/abaplint/abaplint) by [Lars Hvam](https://github.com/larshp) — the same parser that powers abaplint's 392 ABAP statement types.*
+
+### ABAP LSP — Real-Time Diagnostics
+
+`vsp lsp --stdio` gives Claude Code (and other editors) **automatic** error detection and navigation for ABAP files. No explicit tool calls — the LSP pushes diagnostics on every save and compressed dependency context on file open.
+
+See [LSP setup](#abap-lsp-for-claude-code) for configuration.
+
+### Other Highlights
 - **CLI DevOps Surface**: Full ABAP DevOps from the terminal — `vsp source read/write/edit/context`, `vsp test`, `vsp atc`, `vsp deploy`, `vsp transport list/get`, `vsp install zadt-vsp/abapgit`. Pipe source code, script CI/CD pipelines, bootstrap SAP systems without MCP.
 - **Bootstrap from CLI**: `vsp install abapgit` + `vsp install zadt-vsp` — deploy dependencies to SAP systems directly from the command line. No SAP GUI needed.
-- **Context Compression**: `GetSource` auto-appends compressed dependency contracts — public API signatures of all referenced classes, interfaces, and FMs. One call gives the AI both source and surrounding context. 7-30x compression on real SAP code. Use `include_context: false` to disable.
-- **GetContext tool**: Standalone dependency analysis — extract and compress the public API surface of any ABAP object's dependencies.
-- **ABAP LSP** (`vsp lsp --stdio`): Real-time syntax checking and go-to-definition for Claude Code — see [LSP setup](#abap-lsp-for-claude-code)
 - **Codebase Decomposition**: `server.go` (2,539→256 lines), `workflows.go` (3,564→402 lines) split into domain-specific files. Easier to contribute, review, and maintain.
 
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
+| **Hyperfocused Mode** | `--mode hyperfocused`: 1 universal SAP tool, **~200 tokens** vs ~40K for 122 |
+| **Context Compression** | Auto-compressed dependency contracts — 7–30x compression, built-in ABAP parser |
+| **ABAP LSP** | Built-in Language Server — real-time diagnostics, go-to-definition, context push |
 | **AI Debugger** | Breakpoints, listener, attach, step, inspect stack & variables |
 | **RAP OData E2E** | Create CDS views, Service Definitions, Bindings → Publish OData services |
-| **One-Tool Mode** | `--tool-mode universal`: single SAP tool, ~200 tokens vs ~40K for 122 tools |
 | **Focused Mode** | 81 curated tools optimized for AI assistants |
 | **AI-Powered RCA** | Root cause analysis with dumps, traces, profiler + code intelligence |
 | **DSL & Workflows** | Fluent Go API + YAML automation for CI/CD pipelines |
 | **ExecuteABAP** | Run arbitrary ABAP code via unit test wrapper |
 | **Code Analysis** | Call graphs, object structure, find definition/references |
-| **Context Compression** | Auto-compressed dependency contracts with GetSource (7-30x compression) |
 | **System Introspection** | System info, installed components, CDS dependencies |
 | **Diagnostics** | Short dumps (RABAX), ABAP profiler (ATRA), SQL traces (ST05) |
 | **File Deployment** | Bypass token limits - deploy large files directly from filesystem |
-| **ABAP LSP** | Built-in Language Server — automatic diagnostics and go-to-definition |
 | **Surgical Edits** | `EditSource` tool matches Claude's Edit pattern for precise changes |
 
 ## Quick Start
@@ -172,7 +228,7 @@ Configure multiple SAP systems in `.vsp.json`:
 vsp --url https://host:44300 --user admin --password secret
 vsp --url https://host:44300 --cookie-file cookies.txt
 vsp --mode expert          # Enable all 122 tools
-vsp --tool-mode universal  # Single SAP tool (~200 tokens instead of ~40K)
+vsp --mode hyperfocused    # Single SAP tool (~200 tokens instead of ~40K)
 ```
 
 ### Environment Variables
@@ -337,27 +393,31 @@ Without these flags, operations on transportable packages will be blocked by the
 
 ## Tool Modes
 
-### Granular vs Universal
+One axis, three values — `--mode` or `SAP_MODE`:
 
-| Aspect | Granular (Default) | Universal |
-|--------|-------------------|-----------|
-| **Tools registered** | 81 focused / 122 expert | 1 (`SAP`) |
-| **Token overhead** | ~14K / ~40K | ~200 |
-| **How AI calls it** | `GetSource(object_type="CLAS", name="ZCL_TEST")` | `SAP(action="read", target="CLAS ZCL_TEST")` |
-| **Documentation** | Built into each tool schema | `SAP(action="help")` or `SAP(action="help", target="edit")` |
-| **Best for** | Agents with large context windows | Token-constrained agents, fast iteration |
+```mermaid
+graph LR
+    F["focused<br/>81 tools<br/>~14K tokens<br/><i>default</i>"] --> E["expert<br/>122 tools<br/>~40K tokens"]
+    E --> H["hyperfocused<br/>1 tool<br/>~200 tokens"]
+    style H fill:#2d6a4f,color:#fff
+    style F fill:#264653,color:#fff
+    style E fill:#264653,color:#fff
+```
 
-Enable universal mode: `--tool-mode=universal` or `SAP_TOOL_MODE=universal`
+| Aspect | Focused (default) | Expert | Hyperfocused |
+|--------|:-:|:-:|:-:|
+| **Tools** | 81 essential | 122 complete | 1 universal `SAP()` |
+| **Schema tokens** | ~14K | ~40K | ~200 |
+| **How AI calls it** | `GetSource(type, name)` | Same, + granular tools | `SAP(action, target, params)` |
+| **Documentation** | In tool schemas | In tool schemas | `SAP(action="help")` |
+| **Best for** | Large-context agents | Edge cases, debugging | Local models, fast iteration |
+| **Safety controls** | All apply | All apply | All apply (same code path) |
 
-### Focused vs Expert (within Granular mode)
-
-| Aspect | Focused (Default) | Expert |
-|--------|-------------------|--------|
-| **Tools** | 81 essential | 122 complete |
-| **Use case** | Daily development | Edge cases, debugging |
-| **Unified tools** | GetSource, WriteSource | + granular Get*/Write* |
-
-Enable expert mode: `--mode=expert` or `SAP_MODE=expert`
+```bash
+vsp --mode focused       # default — 81 curated tools
+vsp --mode expert        # all 122 tools individually
+vsp --mode hyperfocused  # single SAP(action, target, params) tool
+```
 
 ## DSL & Automation
 
