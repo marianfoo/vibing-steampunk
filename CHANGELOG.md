@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Native ABAP Lexer+Parser** — abaplint port: 100% oracle match on 22K tokens, 3K statements, 91 types.
 - **ABAP Linter** — 8 rules, 100% oracle match on 4 verified rules, 795μs/file.
 - **TS→Go Transpiler** — `pkg/ts2go`: produces valid Go from abaplint TypeScript (LexerBuffer, LexerStream, Lexer all compile).
+- **Lua Bindings** — 5 new functions: `query()`, `lint()`, `parse()`, `context()`, `systemInfo()`. Total: 50+ Lua→SAP bindings.
+- **Example Scripts** — `package-audit.lua` (lint+parse package), `table-explorer.lua` (SQL queries), `dependency-check.lua` (transport readiness).
+- **YAML Workflow** — `quality-gate.yaml` for pre-transport quality checks.
 
 ## [2.31.0] - 2026-03-20
 ### Features

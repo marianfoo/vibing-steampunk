@@ -1,7 +1,7 @@
 # vsp Reviewer Guide
 
 > A hands-on checklist for anyone who wants to kick the tires.
-> No SAP system required for most tasks — 6 of 10 tasks are fully offline.
+> No SAP system required for most tasks — 6 of 11 tasks are fully offline.
 
 ## Build It (30 seconds)
 
@@ -222,7 +222,68 @@ export SAP_URL=https://host:44300 SAP_USER=dev SAP_PASSWORD=secret
 
 ---
 
-## Task 9: MCP Integration
+## Task 9: Lua Scripting & YAML Workflows (with SAP)
+
+vsp includes a Lua scripting engine (50+ SAP bindings) and a YAML workflow engine for automation.
+
+**Lua REPL:**
+```bash
+./vsp -s dev lua
+# lua> objs = searchObject("ZCL_VSP*")
+# lua> for _, o in ipairs(objs) do print(o.name) end
+# lua> rows = query("SELECT MANDT, MTEXT FROM T000")
+# lua> source = getSource("CLAS", "ZCL_VSP_UTILS")
+# lua> issues = lint(source)
+# lua> stmts = parse(source)
+```
+
+**Run example scripts:**
+```bash
+# Package audit — lint + parse all classes
+./vsp -s dev lua examples/scripts/package-audit.lua
+
+# Table explorer — interactive SQL queries
+./vsp -s dev lua examples/scripts/table-explorer.lua
+
+# Dependency check — transport readiness via WBCROSSGT
+./vsp -s dev lua examples/scripts/dependency-check.lua
+
+# Debug session recording
+./vsp -s dev lua examples/scripts/record-debug-session.lua
+```
+
+**YAML workflows:**
+```bash
+# CI pipeline: search → syntax check → unit tests
+./vsp -s dev workflow run examples/workflows/ci-pipeline.yaml
+
+# Pre-transport quality gate
+./vsp -s dev workflow run examples/workflows/quality-gate.yaml --var PACKAGE='$ZADT_VSP'
+```
+
+**What to spotlight:**
+- Lua has full SAP access: search, query, grep, source, debug, lint, parse
+- `query()` returns Lua tables — native data processing
+- `lint()` and `parse()` work on any string — no SAP needed
+- YAML workflows with variable substitution, step chaining, error handling
+- Debugger scripting: set breakpoints, step, inspect, record, replay
+
+**Lua API categories (50+ functions):**
+
+| Category | Functions |
+|----------|-----------|
+| Search & Source | `searchObject`, `grepObjects`, `getSource`, `writeSource`, `editSource` |
+| Query & Analysis | `query`, `lint`, `parse`, `context`, `systemInfo` |
+| Debugging | `setBreakpoint`, `listen`, `attach`, `stepOver/Into/Return`, `getStack`, `getVariables` |
+| Breakpoints | line, statement, exception, message, BAdi, enhancement, watchpoint, method |
+| Recording | `startRecording`, `stopRecording`, `saveRecording`, `loadRecording` |
+| Time Travel | `getStateAtStep`, `findWhenChanged`, `findChanges`, `forceReplay` |
+| Diagnostics | `listDumps`, `getDump`, `runUnitTests`, `syntaxCheck` |
+| Utilities | `print`, `sleep`, `json.encode/decode` |
+
+---
+
+## Task 10: MCP Integration
 
 If you have Claude Desktop, Gemini CLI, Copilot, or any MCP client:
 
@@ -240,7 +301,7 @@ Ready-to-use configs for 8 AI agents in `docs/cli-agents/`.
 
 ---
 
-## Task 10: Code Quality (for Go developers)
+## Task 11: Code Quality (for Go developers)
 
 ```bash
 go vet ./...
@@ -258,7 +319,10 @@ go mod graph | wc -l          # dependency count
 | `pkg/adt/safety.go` | Enterprise safety | ~200 |
 | `pkg/abaplint/lexer.go` | ABAP lexer (abaplint port) | ~340 |
 | `pkg/abaplint/rules.go` | 8 lint rules | ~320 |
+| `pkg/scripting/bindings.go` | 50+ Lua→SAP bindings | ~1600 |
+| `pkg/dsl/workflow.go` | YAML workflow engine | ~600 |
 | `pkg/wasmcomp/compile.go` | WASM→ABAP compiler | ~500 |
+| `pkg/ts2go/ts2go.go` | TypeScript→Go transpiler | ~500 |
 | `cmd/vsp/devops.go` | CLI command handlers | ~1100 |
 
 ---
@@ -281,6 +345,9 @@ go mod graph | wc -l          # dependency count
 | Package deps | `./vsp deps '$PKG' --format summary` | ✅ |
 | Read source | `./vsp source read CLAS ZCL_X` | ✅ |
 | Context | `./vsp context CLAS ZCL_X --depth 2` | ✅ |
+| Lua REPL | `./vsp lua` | ✅ |
+| Lua script | `./vsp lua script.lua` | ✅ |
+| YAML workflow | `./vsp workflow run pipeline.yaml` | ✅ |
 | Unit tests | `./vsp test CLAS ZCL_X` | ✅ |
 | Deploy | `./vsp deploy x.clas.abap '$TMP'` | ✅ |
 | Export | `./vsp export '$PKG' -o backup.zip` | ✅+ |

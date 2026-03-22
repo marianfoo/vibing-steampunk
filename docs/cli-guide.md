@@ -165,6 +165,39 @@ vsp install list              # check what's installed
 
 **Requirements:** Standard ADT for deploy. `install` creates objects in `$TMP` or specified package.
 
+### Lua Scripting
+
+```bash
+# Interactive REPL
+vsp -s dev lua
+# lua> objs = searchObject("ZCL_*")
+# lua> rows = query("SELECT MANDT, MTEXT FROM T000")
+# lua> issues = lint(getSource("CLAS", "ZCL_TEST"))
+
+# Run scripts
+vsp -s dev lua examples/scripts/package-audit.lua
+vsp -s dev lua examples/scripts/table-explorer.lua
+vsp -s dev lua examples/scripts/dependency-check.lua
+```
+
+50+ Lua functions: search, query, grep, source, lint, parse, context, debug (breakpoints, stepping, recording, replay), diagnostics (dumps, traces), JSON handling.
+
+**Requirements:** Standard ADT for SAP access. `lint()` and `parse()` work offline within scripts.
+
+### YAML Workflows
+
+```bash
+# CI pipeline: discover → syntax check → test → fail on errors
+vsp -s dev workflow run examples/workflows/ci-pipeline.yaml
+
+# Quality gate with variables
+vsp -s dev workflow run examples/workflows/quality-gate.yaml --var PACKAGE='$ZADT_VSP'
+```
+
+9 built-in actions: `search`, `test`, `syntax_check`, `transform`, `save`, `activate`, `print`, `fail_if`, `foreach`. Variables, step chaining, conditional execution, error handling.
+
+**Requirements:** Standard ADT.
+
 ### Execute ABAP
 
 ```bash
@@ -210,6 +243,8 @@ vsp copy backup.zip '$TMP'
 | `parse` | — | — | — | ✅ |
 | `compile wasm` | — | — | — | ✅ |
 | `compile ts` | — | — | ✅ | — |
+| `lua` (REPL/scripts) | ✅ | — | — | — |
+| `workflow` | ✅ | — | — | — |
 | `execute` | ✅ | optional | — | — |
 | `export` | — | ✅ | — | — |
 | `install` | ✅ | — | — | — |
