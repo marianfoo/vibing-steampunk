@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/oisee/vibing-steampunk/pkg/abaplint"
+	"github.com/oisee/vibing-steampunk/pkg/adt"
 	"github.com/spf13/cobra"
 )
 
@@ -102,7 +103,28 @@ a clear message explaining what's needed.`,
 	RunE: runExecute,
 }
 
+// --- graph command ---
+
+var graphCmd = &cobra.Command{
+	Use:   "graph <type> <name>",
+	Short: "Show call graph (callers/callees)",
+	Long: `Show the call graph for an ABAP object.
+Works with standard ADT — no ZADT_VSP required.
+
+Examples:
+  vsp graph CLAS ZCL_MY_CLASS
+  vsp graph CLAS ZCL_MY_CLASS --direction callers
+  vsp graph CLAS ZCL_MY_CLASS --direction callees --depth 2`,
+	Args: cobra.ExactArgs(2),
+	RunE: runGraph,
+}
+
 func init() {
+	// Graph flags
+	graphCmd.Flags().String("direction", "callees", "Direction: callees, callers, or both")
+	graphCmd.Flags().Int("depth", 1, "Maximum traversal depth")
+	rootCmd.AddCommand(graphCmd)
+
 	// Query flags
 	queryCmd.Flags().Int("top", 0, "Maximum number of rows (0=all)")
 	queryCmd.Flags().Int("skip", 0, "Skip first N rows")
@@ -445,6 +467,85 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", result.Message)
 	}
 	return nil
+}
+
+func runGraph(cmd *cobra.Command, args []string) error {
+	params, err := resolveSystemParams(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := getClient(params)
+	if err != nil {
+		return err
+	}
+
+	objType := strings.ToUpper(args[0])
+	name := strings.ToUpper(args[1])
+	direction, _ := cmd.Flags().GetString("direction")
+	depth, _ := cmd.Flags().GetInt("depth")
+
+	// Build object URI
+	var objURI string
+	switch objType {
+	case "CLAS":
+		objURI = "/sap/bc/adt/oo/classes/" + strings.ToLower(name)
+	case "PROG":
+		objURI = "/sap/bc/adt/programs/programs/" + strings.ToLower(name)
+	case "INTF":
+		objURI = "/sap/bc/adt/oo/interfaces/" + strings.ToLower(name)
+	case "FUGR":
+		objURI = "/sap/bc/adt/functions/groups/" + strings.ToLower(name)
+	default:
+		objURI = "/sap/bc/adt/oo/classes/" + strings.ToLower(name)
+	}
+
+	ctx := context.Background()
+
+	switch direction {
+	case "callers":
+		node, err := client.GetCallersOf(ctx, objURI, depth)
+		if err != nil {
+			return fmt.Errorf("failed to get callers: %w", err)
+		}
+		printGraphNode(node, 0)
+	case "both":
+		fmt.Println("=== CALLEES ===")
+		callees, err := client.GetCalleesOf(ctx, objURI, depth)
+		if err == nil {
+			printGraphNode(callees, 0)
+		}
+		fmt.Println("\n=== CALLERS ===")
+		callers, err := client.GetCallersOf(ctx, objURI, depth)
+		if err == nil {
+			printGraphNode(callers, 0)
+		}
+	default: // callees
+		node, err := client.GetCalleesOf(ctx, objURI, depth)
+		if err != nil {
+			return fmt.Errorf("failed to get callees: %w", err)
+		}
+		printGraphNode(node, 0)
+	}
+	return nil
+}
+
+func printGraphNode(node *adt.CallGraphNode, indent int) {
+	if node == nil {
+		return
+	}
+	prefix := strings.Repeat("  ", indent)
+	label := node.Name
+	if node.Type != "" {
+		label = node.Type + " " + label
+	}
+	if node.Description != "" {
+		label += " — " + node.Description
+	}
+	fmt.Printf("%s%s\n", prefix, label)
+	for i := range node.Children {
+		printGraphNode(&node.Children[i], indent+1)
+	}
 }
 
 func readStdin() ([]byte, error) {

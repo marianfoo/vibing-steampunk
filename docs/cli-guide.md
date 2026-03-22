@@ -24,6 +24,8 @@ vsp source read PROG ZTEST_REPORT
 # Read with compressed dependency context
 vsp context CLAS ZCL_MY_CLASS
 vsp context CLAS ZCL_MY_CLASS --max-deps 30
+vsp context CLAS ZCL_DEEP --depth 2             # deps of deps
+vsp context CLAS ZCL_COMPLEX --depth 3           # 3 levels deep
 
 # Write source
 vsp source write CLAS ZCL_MY_CLASS < new_source.abap
@@ -49,6 +51,22 @@ vsp grep "cl_abap_unit" --package '$ZADT' --type CLAS
 
 # System information
 vsp system info
+```
+
+**Requirements:** Standard ADT. No ZADT_VSP needed.
+
+### Call Graph
+
+```bash
+# Show what an object calls
+vsp graph CLAS ZCL_MY_CLASS
+vsp graph CLAS ZCL_MY_CLASS --depth 2
+
+# Show what calls an object
+vsp graph CLAS ZCL_MY_CLASS --direction callers
+
+# Show both directions
+vsp graph CLAS ZCL_MY_CLASS --direction both
 ```
 
 **Requirements:** Standard ADT. No ZADT_VSP needed.
@@ -159,7 +177,8 @@ vsp copy backup.zip '$TMP'
 | Command | Standard ADT | ZADT_VSP | Node.js | Offline |
 |---------|:---:|:---:|:---:|:---:|
 | `source read/write/edit` | ✅ | — | — | — |
-| `context` | ✅ | — | — | — |
+| `context` (+ `--depth`) | ✅ | — | — | — |
+| `graph` | ✅ | — | — | — |
 | `search` | ✅ | — | — | — |
 | `query` | ✅ | — | — | — |
 | `grep` | ✅ | — | — | — |
