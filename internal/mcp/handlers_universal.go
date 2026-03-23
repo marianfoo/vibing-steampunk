@@ -36,16 +36,16 @@ Params: action-specific parameters as JSON object`),
 
 // handleUniversalTool dispatches universal SAP(action, target, params) calls to domain-specific route functions.
 func (s *Server) handleUniversalTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	action, _ := request.Params.Arguments["action"].(string)
+	action, _ := request.GetArguments()["action"].(string)
 	if action == "" {
 		return newToolResultError("action is required. Use SAP(action=\"help\") for documentation."), nil
 	}
 	action = strings.ToLower(action)
 
-	target, _ := request.Params.Arguments["target"].(string)
+	target, _ := request.GetArguments()["target"].(string)
 
 	// Extract params as map
-	params := getObject(request.Params.Arguments, "params")
+	params := getObject(request.GetArguments(), "params")
 	if params == nil {
 		params = make(map[string]any)
 	}
@@ -161,13 +161,7 @@ func getBoolParam(args map[string]any, key string) (bool, bool) {
 // newRequest creates an mcp.CallToolRequest with the given arguments map.
 func newRequest(args map[string]any) mcp.CallToolRequest {
 	return mcp.CallToolRequest{
-		Params: struct {
-			Name      string         `json:"name"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
-			} `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Arguments: args,
 		},
 	}

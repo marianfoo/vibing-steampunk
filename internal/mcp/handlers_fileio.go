@@ -90,11 +90,11 @@ func (s *Server) handleSaveToFile(ctx context.Context, request mcp.CallToolReque
 
 	// Check for parent/function_group parameter (required for FUNC type)
 	parentName := ""
-	if p, ok := request.Params.Arguments["parent"].(string); ok {
+	if p, ok := request.GetArguments()["parent"].(string); ok {
 		parentName = p
-	} else if p, ok := request.Params.Arguments["function_group"].(string); ok {
+	} else if p, ok := request.GetArguments()["function_group"].(string); ok {
 		parentName = p
-	} else if p, ok := request.Params.Arguments["parentName"].(string); ok {
+	} else if p, ok := request.GetArguments()["parentName"].(string); ok {
 		parentName = p
 	}
 
@@ -232,7 +232,7 @@ func (s *Server) handleEditSource(ctx context.Context, request mcp.CallToolReque
 	}
 
 	ignoreWarnings := false
-	if iw, ok := request.Params.Arguments["ignore_warnings"].(bool); ok {
+	if iw, ok := request.GetArguments()["ignore_warnings"].(bool); ok {
 		ignoreWarnings = iw
 	}
 
