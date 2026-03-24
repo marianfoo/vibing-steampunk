@@ -198,10 +198,39 @@ rdisp/wp_no_dia = 7
 ```
 To:
 ```
-rdisp/wp_no_dia = 15
+rdisp/wp_no_dia = 25
 rdisp/wp_no_btc = 5
 rdisp/wp_no_vb  = 1
 ```
+
+### Session Timeout Tuning
+
+ADT CRUD operations open stateful sessions (locks) that hold a dialog work
+process in **PRIV** (private) mode. If the client disconnects without explicitly
+ending the session, the WP stays occupied until the timeout expires.
+
+The default timeout is 600 seconds (10 minutes), which means 30+ integration
+tests can exhaust all work processes before the first sessions expire.
+
+**Add these parameters to the instance profile:**
+
+```
+# Aggressive session cleanup for CI / remote ADT clients
+rdisp/plugin_auto_logout = 120
+rdisp/max_wprun_time = 300
+icm/keep_alive_timeout = 60
+http/security_session_timeout = 120
+```
+
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| `rdisp/plugin_auto_logout` | 120 | Auto-logout idle HTTP plugin sessions after 2 min |
+| `rdisp/max_wprun_time` | 300 | Max runtime for a single dialog step (5 min) |
+| `icm/keep_alive_timeout` | 60 | Close idle HTTP keep-alive connections after 1 min |
+| `http/security_session_timeout` | 120 | HTTP security session timeout (2 min) |
+
+Without these settings, stale PRIV sessions from failed or disconnected tests
+accumulate and cause 503 errors for subsequent requests.
 
 **Restart the ABAP application server (not the whole container):**
 

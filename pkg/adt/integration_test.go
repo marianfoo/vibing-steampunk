@@ -1637,8 +1637,11 @@ func TestIntegration_ExternalBreakpoints(t *testing.T) {
 	// Use a known program for testing
 	testObjectURI := "/sap/bc/adt/programs/programs/DEMO_ABAP_OBJECTS/source/main"
 
-	// Test user for breakpoints
-	testUser := "AVINOGRADOVA"
+	// Test user for breakpoints — use the same user as the integration test client
+	testUser := os.Getenv("SAP_USER")
+	if testUser == "" {
+		testUser = "DEVELOPER"
+	}
 
 	// Step 1: Get initial breakpoints
 	t.Log("Step 1: Getting existing external breakpoints...")
