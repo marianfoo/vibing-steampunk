@@ -13,7 +13,6 @@ import (
 
 var (
 	systemName string
-	outputFile string
 	objectType string
 	maxResults int
 )
@@ -23,7 +22,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&systemName, "system", "s", "", "System name from config (e.g., 'a4h')")
 
 	// Add CLI subcommands
-	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(sourceCmd)
 	rootCmd.AddCommand(systemsCmd)
@@ -138,82 +136,11 @@ func getClient(params *systemParams) (*adt.Client, error) {
 	return adt.NewClient(params.URL, params.User, params.Password, opts...), nil
 }
 
-// getWSClient creates an AMDP WebSocket client for GitExport.
-func getWSClient(ctx context.Context, params *systemParams) (*adt.AMDPWebSocketClient, error) {
-	// NewAMDPWebSocketClient(baseURL, client, user, password, insecure)
-	wsClient := adt.NewAMDPWebSocketClient(
-		params.URL,
-		params.Client,
-		params.User,
-		params.Password,
-		params.Insecure,
-	)
-
-	if err := wsClient.Connect(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect WebSocket: %w", err)
-	}
-
-	return wsClient, nil
-}
-
 func getEnvOrDefault(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return defaultVal
-}
-
-// --- export command ---
-
-var exportCmd = &cobra.Command{
-	Use:   "export <packages...>",
-	Short: "Export packages to ZIP (abapGit format)",
-	Long: `Export one or more packages to a ZIP file in abapGit-compatible format.
-
-Examples:
-  vsp -s a4h export '$ZORK' '$ZLLM' -o packages.zip
-  vsp export '$TMP' --output my-package.zip
-  vsp -s dev export 'Z*' --subpackages`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runExport,
-}
-
-func init() {
-	exportCmd.Flags().StringVarP(&outputFile, "output", "o", "export.zip", "Output ZIP file path")
-	exportCmd.Flags().BoolP("subpackages", "r", true, "Include subpackages")
-}
-
-func runExport(cmd *cobra.Command, args []string) error {
-	params, err := resolveSystemParams(cmd)
-	if err != nil {
-		return err
-	}
-
-	ctx := context.Background()
-	wsClient, err := getWSClient(ctx, params)
-	if err != nil {
-		return err
-	}
-	defer wsClient.Close()
-
-	includeSubpackages, _ := cmd.Flags().GetBool("subpackages")
-
-	fmt.Fprintf(os.Stderr, "Exporting packages: %s\n", strings.Join(args, ", "))
-
-	zipData, result, err := wsClient.GitExportToBytes(ctx, adt.GitExportParams{
-		Packages:           args,
-		IncludeSubpackages: includeSubpackages,
-	})
-	if err != nil {
-		return fmt.Errorf("export failed: %w", err)
-	}
-
-	if err := os.WriteFile(outputFile, zipData, 0644); err != nil {
-		return fmt.Errorf("failed to write ZIP file: %w", err)
-	}
-
-	fmt.Printf("Exported %d objects to %s (%d bytes)\n", result.ObjectCount, outputFile, len(zipData))
-	return nil
 }
 
 // --- search command ---

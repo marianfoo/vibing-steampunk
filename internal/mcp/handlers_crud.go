@@ -22,8 +22,6 @@ func (s *Server) routeCRUDAction(ctx context.Context, action, objectType, object
 			return s.callHandler(ctx, s.handleUnlockObject, params)
 		case "UPDATE_SOURCE":
 			return s.callHandler(ctx, s.handleUpdateSource, params)
-		case "MOVE":
-			return s.callHandler(ctx, s.handleMoveObject, params)
 		case "COMPARE_SOURCE":
 			return s.callHandler(ctx, s.handleCompareSource, params)
 		}
@@ -428,36 +426,4 @@ func (s *Server) handleDeleteObject(ctx context.Context, request mcp.CallToolReq
 	return mcp.NewToolResultText("Object deleted successfully"), nil
 }
 
-func (s *Server) handleMoveObject(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	objectType, ok := request.GetArguments()["object_type"].(string)
-	if !ok || objectType == "" {
-		return newToolResultError("object_type is required"), nil
-	}
-
-	objectName, ok := request.GetArguments()["object_name"].(string)
-	if !ok || objectName == "" {
-		return newToolResultError("object_name is required"), nil
-	}
-
-	newPackage, ok := request.GetArguments()["new_package"].(string)
-	if !ok || newPackage == "" {
-		return newToolResultError("new_package is required"), nil
-	}
-
-	// Ensure WebSocket client is connected
-	if err := s.ensureDebugWSClient(ctx); err != nil {
-		return newToolResultError(fmt.Sprintf("Failed to connect to ZADT_VSP WebSocket: %v. Ensure ZADT_VSP is deployed and SAPC/SICF are configured.", err)), nil
-	}
-
-	result, err := s.debugWSClient.MoveObject(ctx, objectType, objectName, newPackage)
-	if err != nil {
-		return newToolResultError(fmt.Sprintf("MoveObject failed: %v", err)), nil
-	}
-
-	// Format result
-	if result.Success {
-		return mcp.NewToolResultText(fmt.Sprintf("Object moved successfully.\n\nObject: %s %s\nNew Package: %s\nMessage: %s",
-			result.Object, result.ObjName, result.NewPackage, result.Message)), nil
-	}
-	return newToolResultError(fmt.Sprintf("Move failed: %s", result.Message)), nil
-}
+// MoveObject removed — requires ZADT_VSP WebSocket which has been removed.

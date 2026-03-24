@@ -50,9 +50,9 @@ func (s *Server) handleUniversalTool(ctx context.Context, request mcp.CallToolRe
 		params = make(map[string]any)
 	}
 
-	// Help action
+	// Help action — return basic usage
 	if action == "help" {
-		return handleHelp(target), nil
+		return mcp.NewToolResultText("SAP Universal Tool\n\nActions: read, edit, create, delete, search, query, grep, test, analyze, system\nTarget: \"TYPE NAME\" (e.g. \"CLAS ZCL_TEST\")"), nil
 	}
 
 	// Parse target into type and name
@@ -71,23 +71,15 @@ func (s *Server) handleUniversalTool(ctx context.Context, request mcp.CallToolRe
 		s.routeATCAction,
 		s.routeCRUDAction,
 		s.routeClassIncludeAction,
-		s.routeWorkflowAction,
 		s.routeFileIOAction,
-		s.routeDebuggerAction,
-		s.routeDebuggerLegacyAction,
-		s.routeAMDPAction,
 		s.routeUI5Action,
 		s.routeTransportAction,
-		s.routeGitAction,
-		s.routeReportAction,
-		s.routeInstallAction,
 		s.routeSystemAction,
 		s.routeDumpsAction,
 		s.routeTracesAction,
 		s.routeSQLTraceAction,
 		s.routeAnalysisAction,
 		s.routeContextAction,
-		s.routeServiceBindingAction,
 	}
 
 	for _, route := range routes {
@@ -101,7 +93,7 @@ func (s *Server) handleUniversalTool(ctx context.Context, request mcp.CallToolRe
 	}
 
 	// Nothing matched
-	return newToolResultError(getUnhandledErrorMessage(action, objectType, objectName)), nil
+	return newToolResultError(fmt.Sprintf("Unknown action '%s' for target '%s %s'. Use SAP(action=\"help\") for documentation.", action, objectType, objectName)), nil
 }
 
 // parseTarget splits "TYPE NAME" into objectType and objectName, uppercasing both.

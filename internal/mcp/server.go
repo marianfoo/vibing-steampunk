@@ -2,14 +2,11 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -40,31 +37,13 @@ var listenAndServeFunc = func(addr string, handler http.Handler) error {
 	return (&http.Server{Addr: addr, Handler: handler}).ListenAndServe()
 }
 
-// AsyncTask represents a background task status.
-type AsyncTask struct {
-	ID        string      `json:"id"`
-	Type      string      `json:"type"`       // "report", "export", etc.
-	Status    string      `json:"status"`     // "running", "completed", "error"
-	StartedAt time.Time   `json:"started_at"`
-	EndedAt   *time.Time  `json:"ended_at,omitempty"`
-	Result    interface{} `json:"result,omitempty"`
-	Error     string      `json:"error,omitempty"`
-}
-
 // Server wraps the MCP server with ADT client.
 type Server struct {
-	mcpServer      *server.MCPServer
-	adtClient      *adt.Client
-	amdpWSClient   *adt.AMDPWebSocketClient   // WebSocket-based AMDP client (ZADT_VSP)
-	debugWSClient  *adt.DebugWebSocketClient  // WebSocket-based debug client (ZADT_VSP)
-	config         *Config                    // Server configuration for session manager creation
-	featureProber  *adt.FeatureProber         // Feature detection system (safety network)
-	featureConfig  adt.FeatureConfig          // Feature configuration
-
-	// Async task management
-	asyncTasks   map[string]*AsyncTask
-	asyncTasksMu sync.RWMutex
-	asyncTaskID  int64
+	mcpServer     *server.MCPServer
+	adtClient     *adt.Client
+	config        *Config          // Server configuration
+	featureProber *adt.FeatureProber // Feature detection system (safety network)
+	featureConfig adt.FeatureConfig  // Feature configuration
 }
 
 // Config holds MCP server configuration.
@@ -178,13 +157,6 @@ func NewServer(cfg *Config) *Server {
 
 	adtClient := adt.NewClient(cfg.BaseURL, cfg.Username, cfg.Password, opts...)
 
-	// Set terminal ID for debugger operations
-	// Priority: 1) Custom ID (SAP GUI), 2) User-based ID
-	if cfg.TerminalID != "" {
-		adt.SetTerminalID(cfg.TerminalID)
-	}
-	adt.SetTerminalIDUser(cfg.Username)
-
 	// Configure feature detection (safety network)
 	featureConfig := adt.FeatureConfig{
 		HANA:      parseFeatureMode(cfg.FeatureHANA),
@@ -212,7 +184,6 @@ func NewServer(cfg *Config) *Server {
 		config:        cfg,
 		featureProber: featureProber,
 		featureConfig: featureConfig,
-		asyncTasks:    make(map[string]*AsyncTask),
 	}
 
 	// Register tools based on mode, disabled groups, and granular tool config
@@ -314,47 +285,18 @@ func newToolResultError(message string) *mcp.CallToolResult {
 	return result
 }
 
-// ensureWSConnected ensures the WebSocket client is connected, creating it if needed.
-// Returns error result if connection fails, nil on success.
-func (s *Server) ensureWSConnected(ctx context.Context, toolName string) *mcp.CallToolResult {
-	if s.amdpWSClient == nil || !s.amdpWSClient.IsConnected() {
-		s.amdpWSClient = adt.NewAMDPWebSocketClient(
-			s.config.BaseURL, s.config.Client, s.config.Username, s.config.Password, s.config.InsecureSkipVerify,
-		)
-		if err := s.amdpWSClient.Connect(ctx); err != nil {
-			s.amdpWSClient = nil
-			return newToolResultError(fmt.Sprintf("%s: WebSocket connect failed: %v", toolName, err))
-		}
-	}
-	return nil
-}
-
-// requireActiveAMDPSession checks if there's an active AMDP debug session.
-// Returns error result if no session, nil if session is active.
-func (s *Server) requireActiveAMDPSession() *mcp.CallToolResult {
-	if s.amdpWSClient == nil || !s.amdpWSClient.IsActive() {
-		return newToolResultError("No active AMDP session. Use AMDPDebuggerStart first.")
-	}
-	return nil
-}
-
 // Tool handlers are in separate files:
-// - handlers_read.go: GetProgram, GetClass, GetTable, etc.
+// - handlers_read.go: GetTable, GetTableContents, GetPackage, etc.
+// - handlers_source.go: GetSource, WriteSource
 // - handlers_system.go: GetSystemInfo, GetFeatures, etc.
 // - handlers_analysis.go: GetCallGraph, TraceExecution, etc.
-// - handlers_codeintel.go: FindDefinition, FindReferences, CodeCompletion, etc.
+// - handlers_codeintel.go: FindDefinition, FindReferences, etc.
 // - handlers_devtools.go: SyntaxCheck, Activate, ATC, etc.
 // - handlers_crud.go: Lock, Create, Update, Delete, etc.
-// - handlers_debugger.go: SetBreakpoint, DebuggerListen, etc.
-// - handlers_amdp.go: AMDPDebugger* handlers
-// - handlers_ui5.go: UI5ListApps, UI5GetApp, etc.
-// - handlers_git.go: GitTypes, GitExport
-// - handlers_report.go: RunReport, GetVariants, etc.
-// - handlers_install.go: InstallZADTVSP, InstallAbapGit, etc.
 // - handlers_transport.go: ListTransports, GetTransport, etc.
+// - handlers_ui5.go: UI5ListApps, UI5GetApp, etc.
 //
 // Tool registration is in:
-// - tools_register.go: registerTools() and all register*Tools() methods
+// - tools_register.go: registerTools() and register*Tools() methods
 // - tools_groups.go: toolGroups() - group definitions for --disabled-groups
 // - tools_focused.go: focusedToolSet() - focused mode whitelist
-// - tools_aliases.go: registerToolAliases() - short alias names

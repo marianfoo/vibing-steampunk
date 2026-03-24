@@ -38,8 +38,6 @@ func (s *Server) routeCodeIntelAction(ctx context.Context, action, objectType, o
 		return s.callHandler(ctx, s.handleGetClassComponents, params)
 	case "inactive_objects":
 		return s.callHandler(ctx, s.handleGetInactiveObjects, params)
-	case "abap_help":
-		return s.callHandler(ctx, s.handleGetAbapHelp, params)
 	}
 	return nil, false, nil
 }
