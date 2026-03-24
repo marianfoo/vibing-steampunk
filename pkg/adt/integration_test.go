@@ -1586,8 +1586,11 @@ define service ZTEST_MCP_SD_FLIGHT {
 		BindingCategory:   "0", // Web API
 	})
 	if err != nil {
-		// SRVB might already exist from previous run
-		if !strings.Contains(err.Error(), "already exists") {
+		// SRVB might already exist from previous run.
+		// SAP returns "does already exist" (no trailing 's') or "ExceptionResourceAlreadyExists".
+		alreadyExists := strings.Contains(err.Error(), "already exist") ||
+			strings.Contains(err.Error(), "ExceptionResourceAlreadyExists")
+		if !alreadyExists {
 			t.Fatalf("CreateObject SRVB failed: %v", err)
 		}
 		t.Log("SRVB already exists, continuing...")
