@@ -115,6 +115,9 @@ func init() {
 	rootCmd.Flags().String("pp-ca-cert", "", "CA certificate matching the key (must be trusted in SAP STRUST)")
 	rootCmd.Flags().String("pp-cert-ttl", "5m", "Validity duration for ephemeral certificates (e.g., 5m, 1h)")
 
+	// API Key authentication (for centralized MCP server deployment)
+	rootCmd.Flags().String("api-key", "", "Shared API key for authenticating MCP clients (HTTP Streamable only)")
+
 	// Safety options
 	rootCmd.Flags().BoolVar(&cfg.ReadOnly, "read-only", false, "Block all write operations (create, update, delete, activate)")
 	rootCmd.Flags().BoolVar(&cfg.BlockFreeSQL, "block-free-sql", false, "Block execution of arbitrary SQL queries via RunQuery")
@@ -170,6 +173,7 @@ func init() {
 	viper.BindPFlag("pp-ca-key", rootCmd.Flags().Lookup("pp-ca-key"))
 	viper.BindPFlag("pp-ca-cert", rootCmd.Flags().Lookup("pp-ca-cert"))
 	viper.BindPFlag("pp-cert-ttl", rootCmd.Flags().Lookup("pp-cert-ttl"))
+	viper.BindPFlag("api-key", rootCmd.Flags().Lookup("api-key"))
 	viper.BindPFlag("read-only", rootCmd.Flags().Lookup("read-only"))
 	viper.BindPFlag("block-free-sql", rootCmd.Flags().Lookup("block-free-sql"))
 	viper.BindPFlag("allowed-ops", rootCmd.Flags().Lookup("allowed-ops"))
@@ -246,6 +250,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 		if cfg.OIDCIssuer != "" {
 			fmt.Fprintf(os.Stderr, "[VERBOSE] OIDC: Issuer=%s, Audience=%s\n", cfg.OIDCIssuer, cfg.OIDCAudience)
+		}
+		if cfg.APIKey != "" {
+			fmt.Fprintf(os.Stderr, "[VERBOSE] MCP Auth: API Key configured (HTTP Streamable only)\n")
 		}
 		if cfg.CACertFile != "" {
 			fmt.Fprintf(os.Stderr, "[VERBOSE] TLS: Custom CA cert: %s\n", cfg.CACertFile)
@@ -568,6 +575,13 @@ func processCookieAuth(cmd *cobra.Command) error {
 	cfg.PPCAKeyFile = ppCAKey
 	cfg.PPCACertFile = ppCACert
 	cfg.PPCertTTL = ppCertTTL
+
+	// Process API key (uses VSP_ prefix, not SAP_, since it authenticates MCP clients to vsp)
+	apiKey := os.Getenv("VSP_API_KEY")
+	if ak, _ := cmd.Flags().GetString("api-key"); ak != "" {
+		apiKey = ak
+	}
+	cfg.APIKey = apiKey
 
 	// Process OAuth/service key
 	serviceKeyFile := viper.GetString("SERVICE_KEY")

@@ -2,11 +2,15 @@
 package mcp
 
 import (
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -119,6 +123,9 @@ type Config struct {
 	PPCACertFile string // CA certificate (must be trusted in SAP STRUST)
 	PPCertTTL    string // Certificate validity duration (e.g., "5m")
 
+	// API Key authentication (for centralized HTTP Streamable deployment)
+	APIKey string // Shared API key for authenticating MCP clients
+
 	// Debugger configuration
 	TerminalID string // SAP GUI terminal ID for cross-tool breakpoint sharing
 
@@ -196,6 +203,28 @@ func NewServer(cfg *Config) *Server {
 		}))
 	}
 
+	// Configure principal propagation (OIDC → ephemeral X.509 → SAP mTLS)
+	if cfg.PPCAKeyFile != "" && cfg.PPCACertFile != "" {
+		ppConfig := adt.PrincipalPropagationConfig{
+			CAKeyFile:  cfg.PPCAKeyFile,
+			CACertFile: cfg.PPCACertFile,
+		}
+		if cfg.PPCertTTL != "" {
+			if ttl, err := parseDuration(cfg.PPCertTTL); err == nil {
+				ppConfig.CertValidity = ttl
+			}
+		}
+		ppDoer, err := adt.LoadPrincipalPropagation(ppConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] Failed to load principal propagation CA: %v\n", err)
+		} else {
+			if cfg.InsecureSkipVerify {
+				ppDoer.SetInsecureSkipVerify(true)
+			}
+			opts = append(opts, adt.WithPrincipalPropagation(ppDoer))
+		}
+	}
+
 	adtClient := adt.NewClient(cfg.BaseURL, cfg.Username, cfg.Password, opts...)
 
 	// Configure feature detection (safety network)
@@ -271,6 +300,11 @@ func (s *Server) ServeStdio() error {
 // It validates the Origin header on all incoming connections to prevent DNS rebinding attacks,
 // as required by the MCP specification:
 // https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
+//
+// Authentication middleware chain (outermost first):
+//  1. API Key or OIDC middleware (if configured)
+//  2. Origin validation middleware
+//  3. MCP handler
 func (s *Server) ServeStreamableHTTP(addr string) error {
 	if strings.TrimSpace(addr) == "" {
 		addr = DefaultStreamableHTTPAddr
@@ -281,9 +315,109 @@ func (s *Server) ServeStreamableHTTP(addr string) error {
 		server.WithEndpointPath(DefaultStreamableHTTPPath),
 	)
 
+	// Build middleware chain (innermost to outermost)
+	var handler http.Handler = originValidationMiddleware(addr, mcpHandler)
+
+	// Add authentication middleware
+	if s.config.OIDCIssuer != "" {
+		// Phase 2: OIDC JWT validation (extracts user identity)
+		validator := adt.NewOIDCValidator(adt.OIDCConfig{
+			IssuerURL:       s.config.OIDCIssuer,
+			Audience:        s.config.OIDCAudience,
+			UsernameClaim:   s.config.OIDCUsernameClaim,
+			UsernameMapping: loadUsernameMapping(s.config.OIDCUserMapping),
+		})
+		handler = adt.OIDCMiddleware(validator, handler)
+	} else if s.config.APIKey != "" {
+		// Phase 1: API Key authentication
+		handler = apiKeyMiddleware(s.config.APIKey, handler)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle(DefaultStreamableHTTPPath, originValidationMiddleware(addr, mcpHandler))
+	mux.Handle(DefaultStreamableHTTPPath, handler)
+
+	// Health endpoint (unauthenticated, for load balancer checks)
+	mux.HandleFunc("/health", healthHandler)
+
+	// Protected Resource Metadata (MCP OAuth spec, RFC 9728)
+	if s.config.OIDCIssuer != "" {
+		mux.HandleFunc("/.well-known/oauth-protected-resource",
+			protectedResourceMetadataHandler(addr, s.config.OIDCIssuer))
+	}
+
 	return listenAndServeFunc(addr, mux)
+}
+
+// apiKeyMiddleware validates a shared API key from the Authorization: Bearer header.
+// Uses constant-time comparison to prevent timing attacks.
+func apiKeyMiddleware(apiKey string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, `{"error":"missing Authorization header"}`, http.StatusUnauthorized)
+			return
+		}
+
+		// Extract token from "Bearer <token>"
+		token := auth
+		if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			token = auth[7:] // len("Bearer ") == 7
+		}
+
+		if subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
+			http.Error(w, `{"error":"invalid API key"}`, http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// healthHandler returns a simple health check response (unauthenticated).
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// protectedResourceMetadataHandler returns the OAuth Protected Resource Metadata (RFC 9728)
+// so MCP clients can discover the authorization server.
+func protectedResourceMetadataHandler(serverAddr, issuerURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		metadata := map[string]interface{}{
+			"resource":                serverAddr,
+			"authorization_servers":   []string{issuerURL},
+			"bearer_methods_supported": []string{"header"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(metadata)
+	}
+}
+
+// parseDuration parses a duration string like "5m", "1h", "30s".
+func parseDuration(s string) (time.Duration, error) {
+	return time.ParseDuration(s)
+}
+
+// loadUsernameMapping loads a JSON username mapping file.
+// Returns nil if path is empty or file cannot be read.
+// Format: {"oidc-user": "SAP-USER", ...}
+func loadUsernameMapping(path string) map[string]string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to load username mapping from %s: %v\n", path, err)
+		return nil
+	}
+	var mapping map[string]string
+	if err := json.Unmarshal(data, &mapping); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to parse username mapping from %s: %v\n", path, err)
+		return nil
+	}
+	return mapping
 }
 
 // originValidationMiddleware returns an HTTP handler that validates the Origin header
