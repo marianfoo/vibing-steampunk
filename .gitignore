@@ -45,6 +45,12 @@ go.work.sum
 .DS_Store
 Thumbs.db
 
+# Certificates and keys (principal propagation)
+certs/
+*.key
+*.csr
+*.srl
+
 # Environment
 .env
 .env.local
