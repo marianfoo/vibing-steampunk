@@ -243,7 +243,7 @@ Execute arbitrary ABAP code via unit test wrapper:
 - `dangerous` - Can write to DB, call external
 - `critical` - Full system access
 
-See [ExecuteABAP Implementation Report](reports/2025-12-05-004-execute-abap-implementation.md) for details.
+See the [repository source](https://github.com/marianfoo/vibing-steampunk) for implementation details.
 
 ---
 

@@ -318,11 +318,13 @@ forceReplay("production_dump_001")  -- Inject and debug!
 
 | Phase | Document |
 |-------|----------|
-| 5-8 | [TAS-Style Debugging Vision](reports/2025-12-21-001-tas-scripting-time-travel-vision.md) |
-| 5 | [Force Replay & State Injection](reports/2025-12-21-003-force-replay-state-injection.md) |
-| 6-7 | [Test Extraction & Replay](reports/2025-12-21-002-test-extraction-isolated-replay.md) |
-| 4 | [Call Graph & RCA Tools](reports/2025-12-05-013-ai-powered-rca-workflows.md) |
-| 3 | [Debugger Deep Dive](reports/2025-12-11-002-adt-abap-debugger-deep-dive.md) |
+| 5-8 | TAS-Style Debugging Vision (`reports/2025-12-21-001`) |
+| 5 | Force Replay & State Injection (`reports/2025-12-21-003`) |
+| 6-7 | Test Extraction & Replay (`reports/2025-12-21-002`) |
+| 4 | Call Graph & RCA Tools (`reports/2025-12-05-013`) |
+| 3 | Debugger Deep Dive (`reports/2025-12-11-002`) |
+
+Full reports are available in the [reports/](https://github.com/marianfoo/vibing-steampunk/tree/main/reports) directory of the repository.
 
 ---
 

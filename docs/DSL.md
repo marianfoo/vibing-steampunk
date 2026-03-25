@@ -725,6 +725,5 @@ vsp workflow test '$TMP' --json | jq '.failedTests'
 
 ## See Also
 
-- [Report 012: Library & DSL Brainstorming](../reports/2025-12-04-012-library-and-dsl-brainstorming.md)
-- [Example Workflows](../examples/workflows/)
-- [CLAUDE.md](../CLAUDE.md) - Project overview
+- [Example Workflows](https://github.com/marianfoo/vibing-steampunk/tree/main/examples/workflows) — sample YAML workflow files
+- [Developer Guide](agents.md) — project overview and codebase structure

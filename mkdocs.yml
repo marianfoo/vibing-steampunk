@@ -42,10 +42,22 @@ nav:
   - CLI Guide: cli-guide.md
   - Client Setup:
       - Overview: cli-agents/README.md
+      - Español: cli-agents/README_ES.md
+      - Русский: cli-agents/README_RU.md
+      - Українська: cli-agents/README_UA.md
   - SAP Trial Setup: sap-trial-setup.md
   - Docker: docker.md
   - DSL & Workflows: DSL.md
+  - Enterprise Auth: enterprise-auth.md
+  - Vision: vision.md
   - Developer Guide: agents.md
+  - Reviewer Guide: reviewer-guide.md
+  - Architecture Decisions:
+      - WebSocket Stateful Debugging: adr/001-websocket-stateful-debugging.md
+      - RCA Tooling Architecture: adr/002-rca-tooling-architecture.md
+      - ZADT VSP Unified Handler: adr/003-zadt-vsp-apc-unified-handler.md
+  - Plans:
+      - TAS Debugging: plans/phase5-tas-debugging.md
   - Changelog: changelog.md
   - Roadmap: roadmap.md
 
