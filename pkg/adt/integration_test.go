@@ -9,25 +9,56 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
-// Integration tests require SAP_URL, SAP_USER, SAP_PASSWORD environment variables.
+// Integration tests require SAP connection environment variables.
 // Run with: go test -tags=integration -v ./pkg/adt/
+//
+// Variables are resolved in priority order:
+//  1. TEST_SAP_* (dedicated test credentials — recommended, avoids conflicts with a running server)
+//  2. SAP_*      (shared credentials — used as fallback)
+//  3. .env file  (loaded automatically from the repo root or current directory)
+//
+// Example .env entries:
+//
+//	TEST_SAP_URL=http://host:50000
+//	TEST_SAP_USER=developer
+//	TEST_SAP_PASSWORD=secret
+//
+// If none of these are set the tests are skipped (no SAP system available).
+
+// envWithFallback returns TEST_SAP_<key> if set, otherwise SAP_<key>.
+func envWithFallback(key string) string {
+	if v := os.Getenv("TEST_SAP_" + key); v != "" {
+		return v
+	}
+	return os.Getenv("SAP_" + key)
+}
 
 func getIntegrationClient(t *testing.T) *Client {
-	url := os.Getenv("SAP_URL")
-	user := os.Getenv("SAP_USER")
-	pass := os.Getenv("SAP_PASSWORD")
+	t.Helper()
+
+	// Load .env from repo root (or current dir) so tests work without exporting vars manually.
+	// Errors are intentionally ignored — env vars may already be set.
+	_ = godotenv.Load()
+	// Also try two levels up (when running from pkg/adt/)
+	_ = godotenv.Load("../../.env")
+
+	url := envWithFallback("URL")
+	user := envWithFallback("USER")
+	pass := envWithFallback("PASSWORD")
 
 	if url == "" || user == "" || pass == "" {
-		t.Skip("SAP_URL, SAP_USER, SAP_PASSWORD required for integration tests")
+		t.Skip("SAP connection not configured: set TEST_SAP_URL / TEST_SAP_USER / TEST_SAP_PASSWORD (or SAP_URL / SAP_USER / SAP_PASSWORD) in env or .env file")
 	}
 
-	client := os.Getenv("SAP_CLIENT")
+	client := envWithFallback("CLIENT")
 	if client == "" {
 		client = "001"
 	}
-	lang := os.Getenv("SAP_LANGUAGE")
+	lang := envWithFallback("LANGUAGE")
 	if lang == "" {
 		lang = "EN"
 	}
@@ -38,7 +69,7 @@ func getIntegrationClient(t *testing.T) *Client {
 		WithTimeout(30 * time.Second),
 	}
 
-	if os.Getenv("SAP_INSECURE") == "true" {
+	if envWithFallback("INSECURE") == "true" {
 		opts = append(opts, WithInsecureSkipVerify())
 	}
 

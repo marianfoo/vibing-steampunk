@@ -250,6 +250,148 @@ func TestRemovedToolsNotPresent(t *testing.T) {
 	}
 }
 
+// TestReadOnlyConfigSafetyIsReadOnly verifies that readonly mode actually sets safety.ReadOnly=true.
+// The previous test only checked adtClient != nil, which was insufficient.
+func TestReadOnlyConfigSafetyIsReadOnly(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:  "https://sap.example.com:44300",
+		Username: "testuser",
+		Password: "testpass",
+		Mode:     "readonly",
+	})
+
+	safety := s.adtClient.Safety()
+	if !safety.ReadOnly {
+		t.Error("readonly mode must set Safety.ReadOnly = true")
+	}
+}
+
+// TestReadOnlyModeWriteToolsRegistered documents current behavior: readonly mode registers
+// write tools but blocks them at the safety layer, not at tool registration.
+// This is a belt-and-suspenders design: tools exist but the ADT client refuses write ops.
+func TestReadOnlyModeWriteToolsRegistered(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:  "https://sap.example.com:44300",
+		Username: "testuser",
+		Password: "testpass",
+		Mode:     "readonly",
+	})
+
+	names := toolNames(t, s)
+
+	// Write tools ARE registered (safety enforced at client layer, not tool layer)
+	writeTools := []string{"WriteSource", "SyntaxCheck"}
+	for _, tool := range writeTools {
+		if !names[tool] {
+			// If a write tool is absent it means it was removed — update this list
+			t.Logf("note: tool %q not registered in readonly mode (may have been removed)", tool)
+		}
+	}
+	// WriteSource is a core tool that should always be registered
+	if !names["WriteSource"] {
+		t.Error("WriteSource should be registered in readonly mode (safety blocks it at client layer)")
+	}
+
+	// The safety config must block writes regardless of what tools are registered
+	safety := s.adtClient.Safety()
+	if !safety.ReadOnly {
+		t.Error("safety.ReadOnly must be true in readonly mode even if write tools are registered")
+	}
+}
+
+// TestFocusedModeDefaultIsUnrestricted verifies default focused mode has no safety restrictions
+// (backwards-compatible behaviour — safety must be explicitly configured).
+func TestFocusedModeDefaultIsUnrestricted(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:  "https://sap.example.com:44300",
+		Username: "testuser",
+		Password: "testpass",
+		Mode:     "focused",
+	})
+
+	safety := s.adtClient.Safety()
+	if safety.ReadOnly {
+		t.Error("focused mode without explicit ReadOnly flag should not be read-only")
+	}
+	if safety.BlockFreeSQL {
+		t.Error("focused mode without explicit BlockFreeSQL flag should not block free SQL")
+	}
+}
+
+// TestReadOnlyFlagOnFocusedMode verifies that ReadOnly=true in config applies safety
+// regardless of mode.
+func TestReadOnlyFlagOnFocusedMode(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:  "https://sap.example.com:44300",
+		Username: "testuser",
+		Password: "testpass",
+		Mode:     "focused",
+		ReadOnly: true,
+	})
+
+	safety := s.adtClient.Safety()
+	if !safety.ReadOnly {
+		t.Error("ReadOnly=true config flag must set Safety.ReadOnly = true")
+	}
+}
+
+// TestBlockFreeSQLConfig verifies BlockFreeSQL config flag is applied to safety.
+func TestBlockFreeSQLConfig(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:      "https://sap.example.com:44300",
+		Username:     "testuser",
+		Password:     "testpass",
+		Mode:         "focused",
+		BlockFreeSQL: true,
+	})
+
+	safety := s.adtClient.Safety()
+	if !safety.BlockFreeSQL {
+		t.Error("BlockFreeSQL=true config flag must set Safety.BlockFreeSQL = true")
+	}
+}
+
+// TestAllowedPackagesConfig verifies AllowedPackages propagates to safety config.
+func TestAllowedPackagesConfig(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:         "https://sap.example.com:44300",
+		Username:        "testuser",
+		Password:        "testpass",
+		Mode:            "focused",
+		AllowedPackages: []string{"$TMP", "Z*"},
+	})
+
+	safety := s.adtClient.Safety()
+	if len(safety.AllowedPackages) != 2 {
+		t.Fatalf("expected 2 AllowedPackages, got %d", len(safety.AllowedPackages))
+	}
+	if !safety.IsPackageAllowed("$TMP") {
+		t.Error("$TMP should be allowed")
+	}
+	if !safety.IsPackageAllowed("ZTEST") {
+		t.Error("ZTEST should be allowed via Z* wildcard")
+	}
+	if safety.IsPackageAllowed("PROD") {
+		t.Error("PROD should NOT be allowed")
+	}
+}
+
+// TestAllowedOpsConfig verifies AllowedOps string propagates to safety.
+func TestAllowedOpsConfig(t *testing.T) {
+	s := newServerWithConfig(&Config{
+		BaseURL:    "https://sap.example.com:44300",
+		Username:   "testuser",
+		Password:   "testpass",
+		Mode:       "focused",
+		AllowedOps: "RSQ",
+	})
+
+	safety := s.adtClient.Safety()
+	if safety.AllowedOps != "RSQ" {
+		t.Errorf("AllowedOps = %q, want %q", safety.AllowedOps, "RSQ")
+	}
+}
+
 // TestToolsConfigOverridesFocusedMode verifies .vsp.json tool config overrides.
 func TestToolsConfigOverridesFocusedMode(t *testing.T) {
 	// Disable a normally-enabled tool
