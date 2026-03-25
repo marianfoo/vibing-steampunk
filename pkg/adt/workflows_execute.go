@@ -207,17 +207,27 @@ ENDCLASS.
 			for _, alert := range method.Alerts {
 				result.RawAlerts = append(result.RawAlerts, alert)
 
-				// Look for our EXEC_RESULT marker in the alert title
-				if strings.HasPrefix(alert.Title, "EXEC_RESULT:") {
-					output := strings.TrimPrefix(alert.Title, "EXEC_RESULT:")
-					result.Output = append(result.Output, output)
+				// Look for our EXEC_RESULT marker in the alert title.
+				// SAP wraps it as: "Critical Assertion Error: 'EXEC_RESULT:...'"
+				// so we search for the substring rather than requiring a prefix.
+				extractExecResult := func(s string) (string, bool) {
+					const marker = "EXEC_RESULT:"
+					idx := strings.Index(s, marker)
+					if idx < 0 {
+						return "", false
+					}
+					raw := s[idx+len(marker):]
+					raw = strings.TrimRight(raw, "'\"") // strip trailing SAP quote wrapper
+					return raw, true
+				}
+				if out, ok := extractExecResult(alert.Title); ok {
+					result.Output = append(result.Output, out)
 				}
 
 				// Also check details for additional output
 				for _, detail := range alert.Details {
-					if strings.HasPrefix(detail, "EXEC_RESULT:") {
-						output := strings.TrimPrefix(detail, "EXEC_RESULT:")
-						result.Output = append(result.Output, output)
+					if out, ok := extractExecResult(detail); ok {
+						result.Output = append(result.Output, out)
 					}
 				}
 			}
