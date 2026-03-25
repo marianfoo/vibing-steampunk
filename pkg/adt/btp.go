@@ -27,8 +27,12 @@ type BTPConfig struct {
 	DestinationSecret   string
 	DestinationTokenURL string
 
-	// Connectivity service (Cloud Connector)
-	ConnectivityURL string
+	// Connectivity service (Cloud Connector proxy)
+	ConnectivityProxyHost string // e.g., "connectivityproxy.internal.cf.us10-001.hana.ondemand.com"
+	ConnectivityProxyPort string // e.g., "20003"
+	ConnectivityClientID  string
+	ConnectivitySecret    string
+	ConnectivityTokenURL  string
 }
 
 // VCAPServices represents the VCAP_SERVICES JSON structure.
@@ -56,6 +60,15 @@ type destinationCredentials struct {
 	ClientID     string `json:"clientid"`
 	ClientSecret string `json:"clientsecret"`
 	TokenURL     string `json:"token_service_url"`
+}
+
+type connectivityCredentials struct {
+	ClientID           string `json:"clientid"`
+	ClientSecret       string `json:"clientsecret"`
+	TokenURL           string `json:"token_service_url"`
+	URL                string `json:"url"` // XSUAA URL fallback
+	OnPremiseProxyHost string `json:"onpremise_proxy_host"`
+	OnPremiseProxyPort string `json:"onpremise_proxy_http_port"`
 }
 
 // ParseVCAPServices parses BTP service bindings from the VCAP_SERVICES environment variable.
@@ -98,6 +111,30 @@ func ParseVCAPServices() (*BTPConfig, error) {
 		config.DestinationClientID = creds.ClientID
 		config.DestinationSecret = creds.ClientSecret
 		config.DestinationTokenURL = creds.TokenURL
+		// Fallback: construct token URL from XSUAA URL if token_service_url is not present
+		if config.DestinationTokenURL == "" && creds.URL != "" {
+			config.DestinationTokenURL = strings.TrimSuffix(creds.URL, "/") + "/oauth/token"
+		}
+	}
+
+	// Parse Connectivity binding
+	if len(vcap.Connectivity) > 0 {
+		var creds connectivityCredentials
+		if err := json.Unmarshal(vcap.Connectivity[0].Credentials, &creds); err != nil {
+			return nil, fmt.Errorf("parsing Connectivity credentials: %w", err)
+		}
+		config.ConnectivityProxyHost = creds.OnPremiseProxyHost
+		config.ConnectivityProxyPort = creds.OnPremiseProxyPort
+		config.ConnectivityClientID = creds.ClientID
+		config.ConnectivitySecret = creds.ClientSecret
+		config.ConnectivityTokenURL = creds.TokenURL
+		// Fallback: construct token URL from XSUAA URL
+		if config.ConnectivityTokenURL == "" && creds.URL != "" {
+			config.ConnectivityTokenURL = strings.TrimSuffix(creds.URL, "/") + "/oauth/token"
+		} else if config.ConnectivityTokenURL != "" && !strings.HasSuffix(config.ConnectivityTokenURL, "/oauth/token") {
+			// token_service_url is the base XSUAA URL, need to append /oauth/token
+			config.ConnectivityTokenURL = strings.TrimSuffix(config.ConnectivityTokenURL, "/") + "/oauth/token"
+		}
 	}
 
 	return config, nil
@@ -243,4 +280,110 @@ func (d *DestinationLookup) getDestinationToken(ctx context.Context) (string, er
 	}
 
 	return token.AccessToken, nil
+}
+
+// ResolveDestination looks up a BTP destination by name and returns the SAP URL,
+// username, and password extracted from the destination configuration.
+// This is used on startup to override SAP_URL / SAP_USER / SAP_PASSWORD
+// when running on BTP with a configured destination.
+func (d *DestinationLookup) ResolveDestination(ctx context.Context, name string) (sapURL, user, password string, err error) {
+	dest, err := d.GetDestination(ctx, name)
+	if err != nil {
+		return "", "", "", fmt.Errorf("looking up destination %q: %w", name, err)
+	}
+	return dest.URL, dest.User, dest.Password, nil
+}
+
+// ConnectivityProxyTransport returns an http.RoundTripper that routes requests through
+// the BTP Connectivity Service proxy (Cloud Connector). It obtains a JWT token from the
+// connectivity service's XSUAA and sets it as Proxy-Authorization header.
+func (b *BTPConfig) ConnectivityProxyTransport(base *http.Transport) (http.RoundTripper, error) {
+	if b.ConnectivityProxyHost == "" {
+		return base, nil // No connectivity proxy configured
+	}
+
+	proxyURL := &url.URL{
+		Scheme: "http",
+		Host:   b.ConnectivityProxyHost + ":" + b.ConnectivityProxyPort,
+	}
+	base.Proxy = http.ProxyURL(proxyURL)
+
+	return &connectivityProxyRoundTripper{
+		base:   base,
+		config: b,
+	}, nil
+}
+
+// connectivityProxyRoundTripper injects a Proxy-Authorization header with a JWT
+// obtained from the connectivity service's XSUAA. The token is cached and refreshed.
+type connectivityProxyRoundTripper struct {
+	base   http.RoundTripper
+	config *BTPConfig
+
+	token     string
+	expiresAt time.Time
+}
+
+func (rt *connectivityProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	token, err := rt.getToken(req.Context())
+	if err != nil {
+		return nil, fmt.Errorf("getting connectivity proxy token: %w", err)
+	}
+	req = req.Clone(req.Context())
+	req.Header.Set("Proxy-Authorization", "Bearer "+token)
+	// SAP-Connectivity-SCC-Location_ID header can be added here if needed
+	return rt.base.RoundTrip(req)
+}
+
+func (rt *connectivityProxyRoundTripper) getToken(ctx context.Context) (string, error) {
+	if rt.token != "" && time.Now().Before(rt.expiresAt) {
+		return rt.token, nil
+	}
+
+	tokenURL := rt.config.ConnectivityTokenURL
+	if tokenURL == "" {
+		return "", fmt.Errorf("connectivity token URL not configured")
+	}
+
+	data := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {rt.config.ConnectivityClientID},
+		"client_secret": {rt.config.ConnectivitySecret},
+	}
+
+	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL,
+		strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", err
+	}
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Use a direct client (no proxy) for token requests
+	directClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := directClient.Do(tokenReq)
+	if err != nil {
+		return "", fmt.Errorf("fetching connectivity token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("connectivity token endpoint returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+
+	rt.token = result.AccessToken
+	// Refresh 60 seconds before expiry
+	rt.expiresAt = time.Now().Add(time.Duration(result.ExpiresIn-60) * time.Second)
+	return rt.token, nil
 }

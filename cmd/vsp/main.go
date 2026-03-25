@@ -2,7 +2,10 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -210,6 +213,14 @@ func runServer(cmd *cobra.Command, args []string) error {
 	// Resolve configuration with priority: flags > env vars > defaults
 	resolveConfig(cmd)
 
+	// BTP Destination Service: resolve SAP URL + credentials from a named destination.
+	// When SAP_BTP_DESTINATION is set and VCAP_SERVICES is present, override SAP_URL/user/pass.
+	if destName := os.Getenv("SAP_BTP_DESTINATION"); destName != "" {
+		if err := resolveBTPDestination(destName); err != nil {
+			return fmt.Errorf("BTP destination resolution failed: %w", err)
+		}
+	}
+
 	// Validate configuration
 	if err := validateConfig(); err != nil {
 		return err
@@ -394,6 +405,13 @@ func resolveConfig(cmd *cobra.Command) {
 			cfg.HTTPAddr = envAddr
 		}
 	}
+	// Cloud Foundry / Heroku / Railway set PORT env var (no SAP_ prefix).
+	// When no explicit address is configured, bind to the platform-assigned port.
+	if cfg.HTTPAddr == "" || cfg.HTTPAddr == "127.0.0.1:8080" {
+		if cfPort := os.Getenv("PORT"); cfPort != "" {
+			cfg.HTTPAddr = "0.0.0.0:" + cfPort
+		}
+	}
 
 	// Verbose: flag > SAP_VERBOSE env
 	if !cmd.Flags().Changed("verbose") {
@@ -473,6 +491,65 @@ func resolveConfig(cmd *cobra.Command) {
 			cfg.TerminalID = v
 		}
 	}
+}
+
+// resolveBTPDestination uses the BTP Destination Service to resolve the SAP system
+// URL, username, and password from a named destination. It also configures the
+// connectivity proxy transport for routing through Cloud Connector.
+func resolveBTPDestination(destName string) error {
+	btpCfg, err := adt.ParseVCAPServices()
+	if err != nil {
+		return fmt.Errorf("parsing VCAP_SERVICES: %w", err)
+	}
+	if btpCfg == nil {
+		return fmt.Errorf("SAP_BTP_DESTINATION=%q set but VCAP_SERVICES not found (not running on BTP?)", destName)
+	}
+
+	if cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "[VERBOSE] BTP: Resolving destination %q via Destination Service\n", destName)
+	}
+
+	// Look up destination
+	lookup := adt.NewDestinationLookup(btpCfg)
+	destObj, err := lookup.GetDestination(context.Background(), destName)
+	if err != nil {
+		return fmt.Errorf("getting destination %q: %w", destName, err)
+	}
+
+	// Override config with destination values
+	cfg.BaseURL = destObj.URL
+	if cfg.Username == "" && destObj.User != "" {
+		cfg.Username = destObj.User
+		cfg.Password = destObj.Password
+	}
+	if destObj.SAPClient != "" && cfg.Client == "" {
+		cfg.Client = destObj.SAPClient
+	}
+
+	if cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "[VERBOSE] BTP: Destination %q → URL=%s, User=%s, ProxyType=%s\n",
+			destName, destObj.URL, destObj.User, destObj.ProxyType)
+	}
+
+	// For OnPremise destinations, configure connectivity proxy transport
+	if destObj.ProxyType == "OnPremise" && btpCfg.ConnectivityProxyHost != "" {
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[VERBOSE] BTP: Configuring connectivity proxy %s:%s\n",
+				btpCfg.ConnectivityProxyHost, btpCfg.ConnectivityProxyPort)
+		}
+		baseTransport := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: cfg.InsecureSkipVerify,
+			},
+		}
+		proxyRT, err := btpCfg.ConnectivityProxyTransport(baseTransport)
+		if err != nil {
+			return fmt.Errorf("configuring connectivity proxy: %w", err)
+		}
+		cfg.CustomTransport = proxyRT
+	}
+
+	return nil
 }
 
 func validateConfig() error {

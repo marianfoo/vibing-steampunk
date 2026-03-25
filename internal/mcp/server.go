@@ -129,6 +129,9 @@ type Config struct {
 	// Debugger configuration
 	TerminalID string // SAP GUI terminal ID for cross-tool breakpoint sharing
 
+	// BTP connectivity proxy transport (set when using BTP Destination Service)
+	CustomTransport http.RoundTripper
+
 	// Granular tool visibility (from .vsp.json)
 	// Key: tool name, Value: true=enabled, false=disabled
 	// Takes highest priority over mode and disabled groups
@@ -190,6 +193,11 @@ func NewServer(cfg *Config) *Server {
 	}
 	if cfg.CACertFile != "" {
 		opts = append(opts, adt.WithCACert(cfg.CACertFile))
+	}
+
+	// Configure BTP connectivity proxy transport
+	if cfg.CustomTransport != nil {
+		opts = append(opts, adt.WithCustomTransport(cfg.CustomTransport))
 	}
 
 	// Configure OAuth/XSUAA authentication
@@ -428,6 +436,12 @@ func originValidationMiddleware(serverAddr string, next http.Handler) http.Handl
 	serverHost, _, err := net.SplitHostPort(serverAddr)
 	if err != nil {
 		serverHost = serverAddr
+	}
+	// When bound to all interfaces (0.0.0.0 / ::), skip origin validation.
+	// Remote clients (Copilot Studio, etc.) send their own Origin which can
+	// never match a wildcard address. API key or OIDC auth protects instead.
+	if serverHost == "0.0.0.0" || serverHost == "::" || serverHost == "" {
+		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {

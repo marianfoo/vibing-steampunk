@@ -64,6 +64,8 @@ type Config struct {
 	Features FeatureConfig
 	// TerminalID for debugger session (shared with SAP GUI for cross-tool debugging)
 	TerminalID string
+	// CustomTransport overrides the default HTTP transport (used for BTP connectivity proxy).
+	CustomTransport http.RoundTripper
 }
 
 // Option is a functional option for configuring the ADT client.
@@ -115,6 +117,13 @@ func WithCookies(cookies map[string]string) Option {
 func WithVerbose() Option {
 	return func(c *Config) {
 		c.Verbose = true
+	}
+}
+
+// WithCustomTransport sets a custom HTTP round tripper (e.g., BTP connectivity proxy).
+func WithCustomTransport(rt http.RoundTripper) Option {
+	return func(c *Config) {
+		c.CustomTransport = rt
 	}
 }
 
@@ -309,9 +318,14 @@ func (c *Config) NewHTTPClient() *http.Client {
 		TLSClientConfig: tlsConfig,
 	}
 
+	var rt http.RoundTripper = transport
+	if c.CustomTransport != nil {
+		rt = c.CustomTransport
+	}
+
 	return &http.Client{
 		Jar:       jar,
-		Transport: transport,
+		Transport: rt,
 		Timeout:   c.Timeout,
 	}
 }
